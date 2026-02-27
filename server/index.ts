@@ -28,7 +28,7 @@ wss.on("connection", (ws: WebSocket) => {
       if (type === "join") {
         peerId = msgPeerId || null;
         sessionId = msgSessionId || null;
-        
+
         if (sessionId && peerId) {
           if (!connectedPeers.has(sessionId)) {
             connectedPeers.set(sessionId, new Set());
@@ -83,8 +83,7 @@ wss.on("connection", (ws: WebSocket) => {
         if (sessionId) {
           broadcastToSession(sessionId, {
             type: "transfer-complete",
-            transferId: payload.transferId,
-            success: payload.success,
+            ...payload
           });
         }
       }
@@ -221,7 +220,6 @@ app.use((req, res, next) => {
     {
       port,
       host: "0.0.0.0",
-      reusePort: true,
     },
     () => {
       log(`serving on port ${port}`);

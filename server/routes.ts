@@ -69,9 +69,10 @@ export async function registerRoutes(
   // Upload file
   app.post("/api/files", async (req, res) => {
     try {
-      const { sessionId, name, size, mimeType, data } = req.body;
+      const { sessionId, uploaderId, name, size, mimeType, data } = req.body;
+      console.log('Upload metadata:', { sessionId, uploaderId, name });
 
-      if (!sessionId || !name || !data) {
+      if (!sessionId || !uploaderId || !name || !data) {
         return res.status(400).json({ error: "Missing required fields" });
       }
 
@@ -82,6 +83,7 @@ export async function registerRoutes(
 
       const file = await storage.createFile({
         sessionId,
+        uploaderId,
         name,
         size: size || data.length,
         mimeType: mimeType || "application/octet-stream",
@@ -100,19 +102,27 @@ export async function registerRoutes(
   app.get("/api/sessions/:sessionId/files", async (req, res) => {
     try {
       const { sessionId } = req.params;
-      
+      const { uploaderId } = req.query;
+
       const session = await storage.getSession(sessionId);
       if (!session) {
         return res.status(404).json({ error: "Session not found" });
       }
 
-      const files = await storage.getFilesBySession(sessionId);
-      res.json({ files: files.map(f => ({
-        ...f,
-        size: typeof f.size === 'bigint' ? Number(f.size) : f.size,
-        // Don't send the full data for list view
-        data: undefined
-      })) });
+      let files = await storage.getFilesBySession(sessionId);
+      if (uploaderId !== undefined) {
+        // If uploaderId is provided (even if empty string), filter strictly
+        files = files.filter(f => f.uploaderId === uploaderId);
+      }
+
+      res.json({
+        files: files.map(f => ({
+          ...f,
+          size: typeof f.size === 'bigint' ? Number(f.size) : f.size,
+          // Don't send the full data for list view
+          data: undefined
+        }))
+      });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch files" });
     }
@@ -178,7 +188,7 @@ export async function registerRoutes(
   app.get("/api/sessions/:sessionId/peers", async (req, res) => {
     try {
       const { sessionId } = req.params;
-      
+
       const session = await storage.getSession(sessionId);
       if (!session) {
         return res.status(404).json({ error: "Session not found" });
@@ -247,12 +257,41 @@ export async function registerRoutes(
   app.get("/api/files/:fileId/transfers", async (req, res) => {
     try {
       const transfers = await storage.getTransfersByFile(req.params.fileId);
-      res.json({ transfers: transfers.map(t => ({
-        ...t,
-        progress: typeof t.progress === 'bigint' ? Number(t.progress) : t.progress
-      })) });
+      res.json({
+        transfers: transfers.map(t => ({
+          ...t,
+          progress: typeof t.progress === 'bigint' ? Number(t.progress) : t.progress
+        }))
+      });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch transfers" });
+    }
+  });
+
+  // Get files received by a peer
+  app.get("/api/peers/:peerId/received-files", async (req, res) => {
+    try {
+      const { peerId } = req.params;
+      const peers = await storage.getPeersBySession(""); // This is just to get all, we'll filter
+      // Actually, we need a way to get transfers by receiver
+      // I'll check storage implementation...
+      const transfers = Array.from((storage as any).transfers.values() as any[])
+        .filter((t: any) => t.receiverPeerId === peerId);
+
+      const files = [];
+      for (const t of transfers) {
+        const file = await storage.getFile(t.fileId);
+        if (file) {
+          files.push({
+            ...file,
+            size: typeof file.size === 'bigint' ? Number(file.size) : file.size,
+            data: undefined // Don't send data here
+          });
+        }
+      }
+      res.json({ files });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch received files" });
     }
   });
 
@@ -270,10 +309,12 @@ export async function registerRoutes(
         progress: progress !== undefined ? progress : undefined,
       });
 
-      res.json({ transfer: {
-        ...updated,
-        progress: typeof updated.progress === 'bigint' ? Number(updated.progress) : updated.progress
-      } });
+      res.json({
+        transfer: {
+          ...updated,
+          progress: typeof updated.progress === 'bigint' ? Number(updated.progress) : updated.progress
+        }
+      });
     } catch (error) {
       res.status(500).json({ error: "Failed to update transfer" });
     }

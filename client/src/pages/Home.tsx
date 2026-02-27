@@ -1,15 +1,15 @@
 import { useState, useRef, useEffect } from "react";
 import { useRoute } from "wouter";
-import { 
-  UploadCloud, 
-  QrCode, 
-  Wifi, 
-  X, 
-  FileText, 
-  Image as ImageIcon, 
-  Music, 
-  Video, 
-  Clock, 
+import {
+  UploadCloud,
+  QrCode,
+  Wifi,
+  X,
+  FileText,
+  Image as ImageIcon,
+  Music,
+  Video,
+  Clock,
   Send,
   CheckCircle2,
   Smartphone,
@@ -41,30 +41,37 @@ type Peer = {
 
 export default function Home() {
   const [match, params] = useRoute("/:sessionToken?");
+  const searchParams = new URLSearchParams(window.location.search);
+  const queryToken = searchParams.get("token");
+  const activeToken = params?.sessionToken || queryToken || undefined;
+
   const [isDragging, setIsDragging] = useState(false);
   const [showQR, setShowQR] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [showNameEdit, setShowNameEdit] = useState(false);
   const [editedName, setEditedName] = useState("");
+  const [joinToken, setJoinToken] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [currentTime, setCurrentTime] = useState(Date.now());
 
-  const { 
-    sessionToken, 
-    peers, 
-    files, 
-    uploadFile, 
-    deleteFile, 
+  const {
+    sessionToken,
+    peers,
+    files,
+    uploadFile,
+    deleteFile,
     sendFileToPeer,
     changePeerName,
     currentPeerName,
     currentPeerId,
     isLoading,
-    error
+    error,
+    receivedFiles,
+    downloadFile
   } = useShareSnap({
     peerName: "My Device",
     deviceType: "laptop",
-    sessionToken: params?.sessionToken,
+    sessionToken: activeToken,
   });
 
   // Initialize edited name when component mounts or currentPeerName changes
@@ -156,6 +163,20 @@ export default function Home() {
     }
   };
 
+  const handleJoinSession = () => {
+    if (joinToken.trim()) {
+      window.location.href = `/${joinToken.trim().toUpperCase()}`;
+    }
+  };
+
+  const handleCopyLink = () => {
+    if (sessionToken) {
+      // Use path-based URL for cleaner sharing
+      const url = `${window.location.origin}/${sessionToken}`;
+      navigator.clipboard.writeText(url);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
@@ -169,13 +190,13 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col md:flex-row overflow-hidden font-sans transition-colors duration-500">
-      
+
       {/* Sidebar / Main Content Area */}
       <main className="flex-1 flex flex-col h-screen overflow-y-auto no-scrollbar p-4 md:p-8">
-        
+
         <header className="flex justify-between items-center mb-8">
           <div className="flex items-center gap-2">
-            <motion.div 
+            <motion.div
               initial={{ rotate: -10, scale: 0.9 }}
               animate={{ rotate: 0, scale: 1 }}
               className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-primary-foreground shadow-lg shadow-primary/20"
@@ -184,7 +205,7 @@ export default function Home() {
             </motion.div>
             <h1 className="text-2xl font-bold font-display tracking-tight text-foreground">Drop</h1>
           </div>
-          
+
           <div className="flex items-center gap-3">
             {error && (
               <div className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-full">
@@ -205,37 +226,43 @@ export default function Home() {
             >
               {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
-            <button 
+            <button
               onClick={() => setShowQR(true)}
               className="flex items-center gap-2 bg-secondary-container text-on-secondary-container px-4 py-2 rounded-full font-medium text-sm transition-transform active:scale-95 hover:bg-secondary-container/80"
             >
               <QrCode className="w-4 h-4" />
               Receive
             </button>
+            <button
+              onClick={handleCopyLink}
+              className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-full font-medium text-sm transition-transform active:scale-95 hover:opacity-90"
+            >
+              <Send className="w-4 h-4" />
+              Share Link
+            </button>
           </div>
         </header>
 
         {/* Upload Area */}
-        <motion.div 
-          className={`relative border-2 border-dashed rounded-[40px] p-12 flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-500 ease-out mb-8 group ${
-            isDragging 
-              ? 'border-primary bg-primary-container/30 scale-[0.99] shadow-inner' 
-              : 'border-border hover:border-primary/50 hover:bg-muted/30 hover:shadow-xl hover:shadow-primary/5'
-          }`}
+        <motion.div
+          className={`relative border-2 border-dashed rounded-[40px] p-12 flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-500 ease-out mb-8 group ${isDragging
+            ? 'border-primary bg-primary-container/30 scale-[0.99] shadow-inner'
+            : 'border-border hover:border-primary/50 hover:bg-muted/30 hover:shadow-xl hover:shadow-primary/5'
+            }`}
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
           onClick={() => fileInputRef.current?.click()}
           whileTap={{ scale: 0.98 }}
         >
-          <input 
-            type="file" 
-            multiple 
-            className="hidden" 
+          <input
+            type="file"
+            multiple
+            className="hidden"
             ref={fileInputRef}
             onChange={(e) => e.target.files && handleFilesAdded(e.target.files)}
           />
-          <motion.div 
+          <motion.div
             animate={isDragging ? { y: [0, -10, 0] } : {}}
             transition={{ repeat: Infinity, duration: 1.5 }}
             className="w-24 h-24 bg-primary-container text-on-primary-container rounded-3xl flex items-center justify-center mb-6 shadow-md group-hover:scale-110 transition-transform duration-300"
@@ -262,10 +289,10 @@ export default function Home() {
               </span>
             )}
           </div>
-          
+
           <AnimatePresence mode="popLayout">
             {files.length === 0 ? (
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 className="text-center p-12 text-muted-foreground flex flex-col items-center border border-dashed border-border rounded-[32px] bg-muted/10"
@@ -280,7 +307,7 @@ export default function Home() {
               <div className="grid gap-4">
                 {files.map(file => {
                   const secondsLeft = Math.max(0, Math.ceil((file.expiresAt.getTime() - currentTime) / 1000));
-                  
+
                   return (
                     <motion.div
                       key={file.id}
@@ -291,7 +318,7 @@ export default function Home() {
                       className="bg-card rounded-[32px] p-5 flex flex-col gap-4 shadow-sm hover:shadow-md transition-shadow border border-border/50 relative overflow-hidden group"
                     >
                       {/* Expiration Progress Overlay */}
-                      <motion.div 
+                      <motion.div
                         className="absolute bottom-0 left-0 h-1 bg-destructive/20"
                         initial={{ width: "100%" }}
                         animate={{ width: "0%" }}
@@ -315,7 +342,7 @@ export default function Home() {
                             </div>
                           </div>
                         </div>
-                        <button 
+                        <button
                           onClick={(e) => { e.stopPropagation(); removeFile(file.id); }}
                           className="w-10 h-10 rounded-full flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-all active:scale-90"
                         >
@@ -332,7 +359,7 @@ export default function Home() {
                               <span>{Math.round(file.progress)}%</span>
                             </div>
                             <div className="w-full h-3 bg-muted rounded-full overflow-hidden shadow-inner">
-                              <motion.div 
+                              <motion.div
                                 className="h-full bg-gradient-to-r from-primary/80 to-primary"
                                 initial={{ width: 0 }}
                                 animate={{ width: `${file.progress}%` }}
@@ -341,7 +368,7 @@ export default function Home() {
                             </div>
                           </div>
                         )}
-                        
+
                         {file.status === 'ready' && (
                           <div className="flex flex-col gap-3">
                             <div className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground/60 px-1">Send to target</div>
@@ -364,7 +391,7 @@ export default function Home() {
                         )}
 
                         {file.status === 'sending' && (
-                          <motion.div 
+                          <motion.div
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             className="flex items-center gap-3 text-sm font-bold text-primary bg-primary/10 px-5 py-2.5 rounded-2xl w-full justify-center"
@@ -375,7 +402,7 @@ export default function Home() {
                         )}
 
                         {file.status === 'sent' && (
-                          <motion.div 
+                          <motion.div
                             initial={{ scale: 0.9, opacity: 0 }}
                             animate={{ scale: 1, opacity: 1 }}
                             className="flex items-center gap-3 text-sm font-bold text-green-600 bg-green-500/10 px-5 py-2.5 rounded-2xl w-full justify-center border border-green-500/20"
@@ -391,6 +418,51 @@ export default function Home() {
               </div>
             )}
           </AnimatePresence>
+
+          {/* Received Files */}
+          {receivedFiles.length > 0 && (
+            <div className="mt-12">
+              <div className="flex items-center justify-between mb-6 px-2">
+                <h3 className="text-xl font-bold font-display flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                  Incoming Files
+                </h3>
+              </div>
+              <div className="grid gap-4">
+                {receivedFiles.map(file => {
+                  const secondsLeft = Math.max(0, Math.ceil((file.expiresAt.getTime() - currentTime) / 1000));
+                  if (secondsLeft <= 0) return null;
+
+                  return (
+                    <motion.div
+                      key={`received-${file.id}`}
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="bg-card/40 backdrop-blur-sm rounded-[32px] p-5 flex items-center gap-4 border border-green-500/10 hover:border-green-500/30 transition-all group"
+                    >
+                      <div className="w-14 h-14 bg-green-500/10 text-green-600 rounded-[20px] flex items-center justify-center shrink-0">
+                        {getFileIcon(file.mimeType)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-bold text-foreground truncate text-lg">{file.name}</h4>
+                        <div className="flex items-center gap-3 text-sm text-muted-foreground font-medium">
+                          <span>{formatSize(file.size)}</span>
+                          <span className="w-1.5 h-1.5 rounded-full bg-border"></span>
+                          <span className="text-green-600 font-mono">{secondsLeft}s left</span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => downloadFile(file.id)}
+                        className="bg-green-600 text-white px-6 py-2.5 rounded-2xl font-bold text-sm hover:bg-green-700 transition-all active:scale-95 shadow-lg shadow-green-500/20"
+                      >
+                        Download
+                      </button>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </main>
 
@@ -408,7 +480,7 @@ export default function Home() {
 
         <div className="flex flex-col gap-4 flex-1 overflow-y-auto no-scrollbar">
           {peers.length > 0 ? peers.map((peer, index) => (
-            <motion.div 
+            <motion.div
               key={peer.id}
               whileHover={{ x: 5, scale: 1.02 }}
               className="bg-card p-5 rounded-[28px] flex items-center gap-5 cursor-pointer hover:bg-card/80 transition-all border border-border/50 shadow-sm"
@@ -417,7 +489,12 @@ export default function Home() {
                 {getDeviceIcon(peer.deviceType)}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="font-bold text-foreground truncate text-lg">{peer.name}</div>
+                <div className="flex items-center gap-2">
+                  <div className="font-bold text-foreground truncate text-lg">{peer.name}</div>
+                  {peer.id === currentPeerId && (
+                    <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded-md font-black uppercase tracking-tighter">You</span>
+                  )}
+                </div>
                 <div className="text-sm font-medium text-muted-foreground flex items-center gap-1.5 uppercase tracking-tighter">
                   <Wifi className="w-3 h-3" />
                   {peer.isOnline ? 'Online' : 'Offline'}
@@ -432,13 +509,37 @@ export default function Home() {
           )}
         </div>
 
-        <motion.div 
+        {/* Join Session Section */}
+        <div className="bg-muted/30 p-6 rounded-[32px] border border-border/50">
+          <h3 className="text-sm font-bold uppercase tracking-widest text-muted-foreground mb-4 px-1">Sync Device</h3>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Enter Token (e.g. DROP-A1B2)"
+              className="flex-1 bg-background border border-border px-4 py-2 rounded-xl text-sm font-mono focus:border-primary outline-none transition-all uppercase"
+              value={joinToken}
+              onChange={(e) => setJoinToken(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleJoinSession()}
+            />
+            <button
+              onClick={handleJoinSession}
+              className="bg-primary text-primary-foreground px-4 py-2 rounded-xl text-sm font-bold hover:opacity-90 active:scale-95 transition-all"
+            >
+              Join
+            </button>
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-3 px-1 leading-tight">
+            Enter the token from your other device to see it here and share files.
+          </p>
+        </div>
+
+        <motion.div
           whileHover={{ y: -5 }}
           className="bg-gradient-to-br from-primary-container to-secondary-container p-6 rounded-[36px] mt-auto shadow-xl shadow-primary/5 border border-white/10"
         >
           <h3 className="font-black text-on-primary-container mb-2 font-display text-lg uppercase tracking-tight">Visibility Hidden?</h3>
           <p className="text-sm text-on-primary-container/70 mb-6 font-medium leading-relaxed">Ensure you're on the same Wi-Fi or use a secure link.</p>
-          <button 
+          <button
             onClick={() => setShowQR(true)}
             className="w-full bg-foreground text-background py-4 rounded-2xl font-bold flex items-center justify-center gap-3 hover:opacity-90 transition-all active:scale-95 shadow-lg"
           >
@@ -452,40 +553,40 @@ export default function Home() {
       <AnimatePresence>
         {showQR && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="absolute inset-0 bg-background/90 backdrop-blur-xl"
               onClick={() => setShowQR(false)}
             />
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.8, opacity: 0, y: 30 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.8, opacity: 0, y: 30 }}
               className="bg-card relative z-10 max-w-sm w-full p-10 rounded-[48px] shadow-2xl flex flex-col items-center border border-border overflow-hidden"
             >
               <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-primary via-secondary to-tertiary"></div>
-              
-              <button 
+
+              <button
                 onClick={() => setShowQR(false)}
                 className="absolute top-6 right-6 w-10 h-10 bg-muted text-muted-foreground rounded-full flex items-center justify-center hover:bg-muted-foreground/20 transition-all active:scale-90"
               >
                 <X className="w-5 h-5" />
               </button>
-              
+
               <div className="w-20 h-20 bg-primary/10 text-primary rounded-3xl flex items-center justify-center mb-6 shadow-inner">
                 <QrCode className="w-10 h-10" />
               </div>
-              
+
               <h2 className="text-3xl font-bold font-display text-center mb-3">Sync Devices</h2>
               <p className="text-center text-muted-foreground font-medium text-sm mb-10 px-4 leading-relaxed">
                 Scan this code to establish a secure, ephemeral tunnel between devices.
               </p>
-              
+
               <div className="bg-white p-6 rounded-[40px] shadow-2xl border-4 border-muted">
-                <QRCodeSVG 
-                  value={sessionToken ? `https://drop.local/${sessionToken}` : "https://drop.local"} 
+                <QRCodeSVG
+                  value={sessionToken ? `${window.location.origin}/${sessionToken}` : window.location.origin}
                   size={200}
                   level="H"
                   fgColor="#000000"
@@ -500,7 +601,7 @@ export default function Home() {
                   }}
                 />
               </div>
-              
+
               <div className="mt-10 flex flex-col items-center gap-2">
                 <span className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground">Session Token</span>
                 <p className="text-sm font-black bg-muted px-6 py-3 rounded-2xl text-foreground font-mono shadow-inner border border-border/50 tracking-widest">

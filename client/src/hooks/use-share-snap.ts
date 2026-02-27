@@ -39,6 +39,7 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [peers, setPeers] = useState<Peer[]>([]);
   const [files, setFiles] = useState<FileItem[]>([]);
+  const [receivedFiles, setReceivedFiles] = useState<any[]>([]);
   const [transfers, setTransfers] = useState<Map<string, Transfer>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,24 +52,33 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
   // Initialize session (with localStorage persistence)
   useEffect(() => {
     const storageKey = "shareSnapSession";
-    const peerKey = "shareSnapPeer";
+    const oldPeerKey = "shareSnapPeer"; // Old key for cleanup
 
     const initSession = async () => {
       try {
         setIsLoading(true);
+        const peerKey = "shareSnapPeer_v2"; // Changed key to force fresh identity
+
+        // Clean up old localStorage peer entry if it exists
+        localStorage.removeItem(oldPeerKey);
+
         let session: { id: string; token: string } | null = null;
 
         // If a session token is provided in options, try to use it
         if (options.sessionToken) {
           try {
             const res = await apiRequest("GET", `/api/sessions/by-token/${options.sessionToken}`);
-            const data = await res.json();
-            session = data.session;
-            localStorage.setItem(storageKey, JSON.stringify(session));
+            if (res.ok) {
+              const data = await res.json();
+              if (data.session) {
+                session = data.session;
+                localStorage.setItem(storageKey, JSON.stringify(session));
+              }
+            } else {
+              console.warn("Session token invalid or expired");
+            }
           } catch (err) {
-            // Token is invalid or expired
-            console.error("Invalid session token:", err);
-            session = null;
+            console.error("Error fetching session by token:", err);
           }
         }
 
@@ -79,8 +89,12 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
             try {
               const parsed = JSON.parse(saved);
               const res = await apiRequest("GET", `/api/sessions/${parsed.id}`);
-              const data = await res.json();
-              session = data.session;
+              if (res.ok) {
+                const data = await res.json();
+                session = data.session;
+              } else {
+                localStorage.removeItem(storageKey);
+              }
             } catch (err) {
               // session invalid or expired, ignore
               session = null;
@@ -88,7 +102,7 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
           }
         }
 
-        // If still no session, create a new one
+        // Create new session if needed
         if (!session) {
           const res = await apiRequest("POST", "/api/sessions");
           const data = await res.json();
@@ -99,43 +113,33 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
         setSessionId(session.id);
         setSessionToken(session.token);
 
-        // register peer or reuse saved peer
+        // Logic: Guarantee each tab is unique by not reading from storage
+        // A new tab or reload creates a completely new ephemeral device.
         let peerData: any = null;
-        const savedPeer = localStorage.getItem(peerKey);
-        if (savedPeer) {
-          try {
-            peerData = JSON.parse(savedPeer);
-            // ping server to update isOnline
-            await apiRequest("PATCH", `/api/peers/${peerData.id}`, {
-              isOnline: true,
-            });
+
+        // Add a random suffix to distinguish tabs in development
+        const randomSuffix = Math.floor(Math.random() * 1000);
+        const peerRes = await apiRequest("POST", "/api/peers", {
+          sessionId: session.id,
+          name: options.peerName ? `${options.peerName} ${randomSuffix}` : `Device ${randomSuffix}`,
+          deviceType: options.deviceType || "laptop",
+        });
+
+        if (peerRes.ok) {
+          const responseData = await peerRes.json();
+          if (responseData.peer) {
+            peerData = responseData.peer;
             setCurrentPeerId(peerData.id);
             setCurrentPeerName(peerData.name);
-            peerIdRef.current = peerData.id; // Update with actual peer ID
-          } catch {
-            peerData = null;
+            peerIdRef.current = peerData.id;
           }
-        }
-
-        if (!peerData) {
-          const peerRes = await apiRequest("POST", "/api/peers", {
-            sessionId: session.id,
-            name: options.peerName || "My Device",
-            deviceType: options.deviceType || "laptop",
-          });
-          peerData = await peerRes.json();
-          if (peerData.peer && peerData.peer.id) {
-            setCurrentPeerId(peerData.peer.id);
-            setCurrentPeerName(peerData.peer.name);
-            peerIdRef.current = peerData.peer.id; // Update with actual peer ID
-            localStorage.setItem(peerKey, JSON.stringify(peerData.peer));
-          }
+        } else {
+          throw new Error("Failed to register device on server");
         }
 
         setIsLoading(false);
-        return session.id;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to initialize session");
+        setError(err instanceof Error ? err.message : "Failed to initialize");
         setIsLoading(false);
       }
     };
@@ -150,7 +154,7 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
     const connect = () => {
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${protocol}//${window.location.host}/ws`;
-      
+
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
@@ -174,7 +178,7 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
       ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
-          
+
           switch (message.type) {
             case "peer-joined":
               peersRef.current.add(message.peerId);
@@ -185,13 +189,16 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
               fetchPeers();
               break;
             case "transfer-start":
-              // Handle transfer start
-              break;
-            case "transfer-progress":
-              // Update transfer progress
+              if (message.payload.toPeerId === peerIdRef.current) {
+                // We're the recipient
+                console.log("Incoming transfer started:", message.payload);
+              }
               break;
             case "transfer-complete":
-              // Handle transfer complete
+              if (message.payload.success && message.payload.receiverPeerId === peerIdRef.current) {
+                // We're the recipient and it's done
+                fetchReceivedFiles();
+              }
               break;
             case "pong":
               // Keep-alive response
@@ -225,7 +232,7 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
   // Fetch peers
   const fetchPeers = useCallback(async () => {
     if (!sessionId) return;
-    
+
     try {
       const res = await apiRequest("GET", `/api/sessions/${sessionId}/peers`);
       const data = await res.json();
@@ -235,20 +242,23 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
     }
   }, [sessionId]);
 
-  // Fetch files
+  // Fetch files (uploaded by this peer)
   const fetchFiles = useCallback(async () => {
-    if (!sessionId) return;
-    
+    const peerId = peerIdRef.current;
+    if (!sessionId || !peerId) return;
+
     try {
-      const res = await apiRequest("GET", `/api/sessions/${sessionId}/files`);
-      const data = await res.json();
-      setFiles((data.files || []).map((f: any) => ({
-        ...f,
-        size: BigInt(f.size),
-        expiresAt: new Date(f.expiresAt),
-        status: f.status || "ready",
-        progress: 100,
-      })));
+      const res = await apiRequest("GET", `/api/sessions/${sessionId}/files?uploaderId=${peerId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setFiles((data.files || []).map((f: any) => ({
+          ...f,
+          size: BigInt(f.size),
+          expiresAt: new Date(f.expiresAt),
+          status: f.status || "ready",
+          progress: 100,
+        })));
+      }
     } catch (err) {
       console.error("Failed to fetch files:", err);
     }
@@ -266,7 +276,7 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
         const reader = new FileReader();
         reader.onload = async (e) => {
           const data = e.target?.result as string;
-          
+
           // Add to files list with uploading status
           const fileItem: FileItem = {
             id: Math.random().toString(36).substring(7),
@@ -307,6 +317,7 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
           try {
             const res = await apiRequest("POST", "/api/files", {
               sessionId,
+              uploaderId: peerIdRef.current,
               name: file.name,
               size: file.size,
               mimeType: file.type || "application/octet-stream",
@@ -319,16 +330,16 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
             }
 
             const uploadedFile = await res.json();
-            
+
             // Update file with server ID
             setFiles((prev) =>
               prev.map((f) =>
                 f.id === fileItem.id
                   ? {
-                      ...f,
-                      id: uploadedFile.file.id,
-                      expiresAt: new Date(uploadedFile.file.expiresAt),
-                    }
+                    ...f,
+                    id: uploadedFile.file.id,
+                    expiresAt: new Date(uploadedFile.file.expiresAt),
+                  }
                   : f
               )
             );
@@ -358,6 +369,52 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
     },
     []
   );
+
+  // Fetch received files
+  const fetchReceivedFiles = useCallback(async () => {
+    if (!sessionId || !currentPeerId) return;
+    try {
+      const res = await apiRequest("GET", `/api/peers/${currentPeerId}/received-files`);
+      const data = await res.json();
+      setReceivedFiles((data.files || []).map((f: any) => ({
+        ...f,
+        size: BigInt(f.size),
+        expiresAt: new Date(f.expiresAt)
+      })));
+    } catch (err) {
+      console.error("Failed to fetch received files:", err);
+    }
+  }, [sessionId, currentPeerId]);
+
+  // Download file
+  const downloadFile = useCallback(async (fileId: string) => {
+    try {
+      const res = await apiRequest("GET", `/api/files/${fileId}`);
+      const data = await res.json();
+      const file = data.file;
+
+      if (file && file.data) {
+        // Construct the Data URI
+        const dataUri = `data:${file.mimeType};base64,${file.data}`;
+
+        // Use native fetch to elegantly decode base64 to a Blob
+        const fetchResponse = await fetch(dataUri);
+        const blob = await fetchResponse.blob();
+
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = file.name;
+        document.body.appendChild(link);
+        link.click();
+
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+    } catch (err) {
+      setError("Download failed");
+    }
+  }, []);
 
   // Send file to peer
   const sendFileToPeer = useCallback(
@@ -403,7 +460,7 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
               f.id === fileId ? { ...f, status: "sent" } : f
             )
           );
-          
+
           if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
             wsRef.current.send(
               JSON.stringify({
@@ -413,6 +470,7 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
                 payload: {
                   transferId: transfer.transfer.id,
                   success: true,
+                  receiverPeerId: peerId,
                 },
               })
             );
@@ -437,24 +495,32 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
         const now = Date.now();
         return prev.filter((f) => f.expiresAt.getTime() > now);
       });
+      setReceivedFiles((prev) => {
+        const now = Date.now();
+        return prev.filter((f) => f.expiresAt.getTime() > now);
+      });
     }, 1000);
 
     return () => clearInterval(cleanup);
   }, []);
 
-  // Auto-refresh peers
+  // Auto-refresh peers and received files
   useEffect(() => {
     if (!sessionId) return;
-    
+
     fetchPeers();
-    const interval = setInterval(fetchPeers, 5000);
+    fetchReceivedFiles();
+    const interval = setInterval(() => {
+      fetchPeers();
+      fetchReceivedFiles();
+    }, 5000);
     return () => clearInterval(interval);
-  }, [sessionId, fetchPeers]);
+  }, [sessionId, fetchPeers, fetchReceivedFiles]);
 
   // Auto-refresh files
   useEffect(() => {
     if (!sessionId) return;
-    
+
     fetchFiles();
     const interval = setInterval(fetchFiles, 5000);
     return () => clearInterval(interval);
@@ -464,12 +530,12 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
   const changePeerName = useCallback(
     async (newName: string) => {
       if (!currentPeerId) return;
-      
+
       try {
         const res = await apiRequest("PATCH", `/api/peers/${currentPeerId}`, {
           name: newName,
         });
-        
+
         if (res.ok) {
           const data = await res.json();
           setCurrentPeerName(data.peer.name);
@@ -498,8 +564,10 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
     uploadFile,
     deleteFile,
     sendFileToPeer,
+    downloadFile,
     changePeerName,
     fetchPeers,
     fetchFiles,
+    receivedFiles,
   };
 }

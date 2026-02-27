@@ -19,6 +19,7 @@ export const sessions = pgTable("sessions", {
 export const files = pgTable("files", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   sessionId: varchar("session_id").notNull().references(() => sessions.id, { onDelete: "cascade" }),
+  uploaderId: varchar("uploader_id").notNull(),
   name: text("name").notNull(),
   size: bigint("size", { mode: "number" }).notNull(),
   mimeType: text("mime_type").notNull(),
