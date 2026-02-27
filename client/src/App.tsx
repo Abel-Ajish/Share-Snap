@@ -10,6 +10,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/:sessionToken" component={Home} />
       <Route component={NotFound} />
     </Switch>
   );

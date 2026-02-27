@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useRoute } from "wouter";
 import { 
   UploadCloud, 
   QrCode, 
@@ -18,41 +19,58 @@ import {
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useShareSnap } from "@/hooks/use-share-snap";
 
-// Types
+// Types from hook
 type FileItem = {
   id: string;
   name: string;
-  size: number;
-  type: string;
-  progress: number;
-  expiresAt: number; // timestamp
+  size: bigint;
+  mimeType: string;
+  expiresAt: Date;
   status: 'uploading' | 'ready' | 'sending' | 'sent';
+  progress: number;
 };
 
 type Peer = {
   id: string;
   name: string;
-  deviceType: 'phone' | 'laptop';
-  distance: string;
-  color: string;
+  deviceType: 'phone' | 'laptop' | 'tablet' | 'desktop';
+  isOnline: boolean;
 };
 
-// Mock Data
-const MOCK_PEERS: Peer[] = [
-  { id: '1', name: "Alex's iPhone", deviceType: 'phone', distance: "Near", color: "bg-primary-container text-on-primary-container" },
-  { id: '2', name: "MacBook Pro", deviceType: 'laptop', distance: "Far", color: "bg-secondary-container text-on-secondary-container" },
-  { id: '3', name: "Studio Mac", deviceType: 'laptop', distance: "Near", color: "bg-tertiary-container text-on-tertiary-container" },
-];
-
 export default function Home() {
-  const [files, setFiles] = useState<FileItem[]>([]);
+  const [match, params] = useRoute("/:sessionToken?");
   const [isDragging, setIsDragging] = useState(false);
   const [showQR, setShowQR] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [selectedPeer, setSelectedPeer] = useState<string | null>(null);
+  const [showNameEdit, setShowNameEdit] = useState(false);
+  const [editedName, setEditedName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [currentTime, setCurrentTime] = useState(Date.now());
+
+  const { 
+    sessionToken, 
+    peers, 
+    files, 
+    uploadFile, 
+    deleteFile, 
+    sendFileToPeer,
+    changePeerName,
+    currentPeerName,
+    currentPeerId,
+    isLoading,
+    error
+  } = useShareSnap({
+    peerName: "My Device",
+    deviceType: "laptop",
+    sessionToken: params?.sessionToken,
+  });
+
+  // Initialize edited name when component mounts or currentPeerName changes
+  useEffect(() => {
+    setEditedName(currentPeerName);
+  }, [currentPeerName]);
 
   // Dark mode effect
   useEffect(() => {
@@ -63,20 +81,19 @@ export default function Home() {
     }
   }, [isDarkMode]);
 
-  // Timer to update countdowns and remove expired files
+  // Timer to update countdowns
   useEffect(() => {
     const timer = setInterval(() => {
-      const now = Date.now();
-      setCurrentTime(now);
-      setFiles(prev => prev.filter(f => f.expiresAt > now));
+      setCurrentTime(Date.now());
     }, 1000);
     return () => clearInterval(timer);
   }, []);
 
-  const formatSize = (bytes: number) => {
-    if (bytes < 1024) return bytes + " B";
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  const formatSize = (bytes: number | bigint) => {
+    const num = typeof bytes === 'bigint' ? Number(bytes) : bytes;
+    if (num < 1024) return num + " B";
+    if (num < 1024 * 1024) return (num / 1024).toFixed(1) + " KB";
+    return (num / (1024 * 1024)).toFixed(1) + " MB";
   };
 
   const getFileIcon = (type: string) => {
@@ -87,35 +104,8 @@ export default function Home() {
   };
 
   const handleFilesAdded = (newFiles: FileList | File[]) => {
-    const items: FileItem[] = Array.from(newFiles).map(file => ({
-      id: Math.random().toString(36).substring(7),
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      progress: 0,
-      expiresAt: Date.now() + 60000, // 1 minute from now
-      status: 'uploading'
-    }));
-
-    setFiles(prev => [...prev, ...items]);
-
-    // Simulate upload progress
-    items.forEach(item => {
-      let prog = 0;
-      const interval = setInterval(() => {
-        prog += Math.random() * 20;
-        if (prog >= 100) {
-          prog = 100;
-          clearInterval(interval);
-          setFiles(prev => prev.map(f => 
-            f.id === item.id ? { ...f, progress: 100, status: 'ready' } : f
-          ));
-        } else {
-          setFiles(prev => prev.map(f => 
-            f.id === item.id ? { ...f, progress: prog } : f
-          ));
-        }
-      }, 200);
+    Array.from(newFiles).forEach(file => {
+      uploadFile(file);
     });
   };
 
@@ -138,21 +128,44 @@ export default function Home() {
   };
 
   const removeFile = (id: string) => {
-    setFiles(prev => prev.filter(f => f.id !== id));
+    deleteFile(id);
   };
 
   const sendFile = (fileId: string, peerId: string) => {
-    setFiles(prev => prev.map(f => 
-      f.id === fileId ? { ...f, status: 'sending' } : f
-    ));
-    
-    // Simulate send complete
-    setTimeout(() => {
-      setFiles(prev => prev.map(f => 
-        f.id === fileId ? { ...f, status: 'sent' } : f
-      ));
-    }, 1500);
+    sendFileToPeer(fileId, peerId);
   };
+
+  const getDeviceIcon = (deviceType: string) => {
+    if (deviceType === 'phone') return <Smartphone className="w-6 h-6" />;
+    return <Laptop className="w-6 h-6" />;
+  };
+
+  const getPeerColor = (index: number) => {
+    const colors = [
+      "bg-primary-container text-on-primary-container",
+      "bg-secondary-container text-on-secondary-container",
+      "bg-tertiary-container text-on-tertiary-container",
+    ];
+    return colors[index % colors.length];
+  };
+
+  const handleSaveName = async () => {
+    if (editedName.trim()) {
+      await changePeerName(editedName.trim());
+      setShowNameEdit(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 rounded-full border-2 border-primary border-t-transparent animate-spin mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Initializing...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col md:flex-row overflow-hidden font-sans transition-colors duration-500">
@@ -173,6 +186,18 @@ export default function Home() {
           </div>
           
           <div className="flex items-center gap-3">
+            {error && (
+              <div className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-full">
+                {error}
+              </div>
+            )}
+            <button
+              onClick={() => setShowNameEdit(true)}
+              className="text-sm bg-muted hover:bg-muted/80 px-3 py-2 rounded-full transition-colors"
+              title={`Current device: ${currentPeerName}`}
+            >
+              {currentPeerName}
+            </button>
             <button
               onClick={() => setIsDarkMode(!isDarkMode)}
               className="w-10 h-10 rounded-full flex items-center justify-center bg-muted hover:bg-muted/80 transition-colors"
@@ -254,7 +279,7 @@ export default function Home() {
             ) : (
               <div className="grid gap-4">
                 {files.map(file => {
-                  const secondsLeft = Math.max(0, Math.ceil((file.expiresAt - currentTime) / 1000));
+                  const secondsLeft = Math.max(0, Math.ceil((file.expiresAt.getTime() - currentTime) / 1000));
                   
                   return (
                     <motion.div
@@ -275,7 +300,7 @@ export default function Home() {
 
                       <div className="flex items-center gap-4">
                         <div className="w-14 h-14 bg-primary-container text-on-primary-container rounded-[20px] flex items-center justify-center shrink-0 shadow-inner group-hover:scale-105 transition-transform">
-                          {getFileIcon(file.type)}
+                          {getFileIcon(file.mimeType)}
                         </div>
                         <div className="flex-1 min-w-0">
                           <h4 className="font-bold text-foreground truncate text-lg tracking-tight">{file.name}</h4>
@@ -321,17 +346,19 @@ export default function Home() {
                           <div className="flex flex-col gap-3">
                             <div className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground/60 px-1">Send to target</div>
                             <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-                              {MOCK_PEERS.map(peer => (
+                              {peers.filter(p => p.id !== currentPeerId).length > 0 ? peers.filter(p => p.id !== currentPeerId).map((peer, index) => (
                                 <button
                                   key={peer.id}
                                   onClick={() => sendFile(file.id, peer.id)}
-                                  className={`flex items-center gap-2.5 px-4 py-2 rounded-2xl text-sm font-bold whitespace-nowrap ${peer.color} hover:shadow-lg transition-all active:scale-95 group/peer`}
+                                  className={`flex items-center gap-2.5 px-4 py-2 rounded-2xl text-sm font-bold whitespace-nowrap ${getPeerColor(index)} hover:shadow-lg transition-all active:scale-95 group/peer`}
                                 >
                                   {peer.deviceType === 'phone' ? <Smartphone className="w-4 h-4" /> : <Laptop className="w-4 h-4" />}
                                   {peer.name}
                                   <Send className="w-3.5 h-3.5 opacity-0 group-hover/peer:opacity-100 -translate-x-2 group-hover/peer:translate-x-0 transition-all" />
                                 </button>
-                              ))}
+                              )) : (
+                                <div className="text-xs text-muted-foreground px-4 py-2">No peers available</div>
+                              )}
                             </div>
                           </div>
                         )}
@@ -373,29 +400,36 @@ export default function Home() {
           <h2 className="text-2xl font-bold font-display mb-2 text-foreground">Discovery</h2>
           <div className="flex items-center gap-3 bg-muted/50 p-2 rounded-full w-fit pr-4 border border-border/50">
             <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.5)]"></div>
-            <span className="text-sm font-bold text-muted-foreground uppercase tracking-widest">Scanning local network</span>
+            <span className="text-sm font-bold text-muted-foreground uppercase tracking-widest">
+              {peers.length > 0 ? `${peers.length} Online` : 'Scanning local network'}
+            </span>
           </div>
         </div>
 
         <div className="flex flex-col gap-4 flex-1 overflow-y-auto no-scrollbar">
-          {MOCK_PEERS.map(peer => (
+          {peers.length > 0 ? peers.map((peer, index) => (
             <motion.div 
               key={peer.id}
               whileHover={{ x: 5, scale: 1.02 }}
               className="bg-card p-5 rounded-[28px] flex items-center gap-5 cursor-pointer hover:bg-card/80 transition-all border border-border/50 shadow-sm"
             >
-              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg ${peer.color}`}>
-                {peer.deviceType === 'phone' ? <Smartphone className="w-6 h-6" /> : <Laptop className="w-6 h-6" />}
+              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg ${getPeerColor(index)}`}>
+                {getDeviceIcon(peer.deviceType)}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-foreground truncate text-lg">{peer.name}</div>
                 <div className="text-sm font-medium text-muted-foreground flex items-center gap-1.5 uppercase tracking-tighter">
                   <Wifi className="w-3 h-3" />
-                  {peer.distance} Range
+                  {peer.isOnline ? 'Online' : 'Offline'}
                 </div>
               </div>
             </motion.div>
-          ))}
+          )) : (
+            <div className="text-center text-muted-foreground p-8">
+              <p className="text-sm">No other devices detected</p>
+              <p className="text-xs opacity-60 mt-2">Make sure they're on the same network</p>
+            </div>
+          )}
         </div>
 
         <motion.div 
@@ -451,7 +485,7 @@ export default function Home() {
               
               <div className="bg-white p-6 rounded-[40px] shadow-2xl border-4 border-muted">
                 <QRCodeSVG 
-                  value="https://replit.com/@replit/drop" 
+                  value={sessionToken ? `https://drop.local/${sessionToken}` : "https://drop.local"} 
                   size={200}
                   level="H"
                   fgColor="#000000"
@@ -470,8 +504,51 @@ export default function Home() {
               <div className="mt-10 flex flex-col items-center gap-2">
                 <span className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground">Session Token</span>
                 <p className="text-sm font-black bg-muted px-6 py-3 rounded-2xl text-foreground font-mono shadow-inner border border-border/50 tracking-widest">
-                  DROP-A8F9-Z42
+                  {sessionToken || "LOADING..."}
                 </p>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Name Edit Dialog */}
+      <AnimatePresence>
+        {showNameEdit && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-background/90 backdrop-blur-xl"
+              onClick={() => setShowNameEdit(false)}
+            />
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0, y: 30 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.8, opacity: 0, y: 30 }}
+              className="bg-card relative z-10 max-w-sm w-full p-8 rounded-[48px] shadow-2xl flex flex-col items-center border border-border overflow-hidden"
+            >
+              <h2 className="text-2xl font-bold mb-4">Rename Device</h2>
+              <input
+                type="text"
+                className="w-full px-4 py-3 border border-border rounded-lg mb-4"
+                value={editedName}
+                onChange={(e) => setEditedName(e.target.value)}
+              />
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowNameEdit(false)}
+                  className="px-4 py-2 bg-muted rounded-lg hover:bg-muted/80"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveName}
+                  className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/80"
+                >
+                  Save
+                </button>
               </div>
             </motion.div>
           </div>
