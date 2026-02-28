@@ -226,20 +226,7 @@ export default function Home() {
             >
               {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
-            <button
-              onClick={() => setShowQR(true)}
-              className="flex items-center gap-2 bg-secondary-container text-on-secondary-container px-4 py-2 rounded-full font-medium text-sm transition-transform active:scale-95 hover:bg-secondary-container/80"
-            >
-              <QrCode className="w-4 h-4" />
-              Receive
-            </button>
-            <button
-              onClick={handleCopyLink}
-              className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-full font-medium text-sm transition-transform active:scale-95 hover:opacity-90"
-            >
-              <Send className="w-4 h-4" />
-              Share Link
-            </button>
+
           </div>
         </header>
 
@@ -509,44 +496,7 @@ export default function Home() {
           )}
         </div>
 
-        {/* Join Session Section */}
-        <div className="bg-muted/30 p-6 rounded-[32px] border border-border/50">
-          <h3 className="text-sm font-bold uppercase tracking-widest text-muted-foreground mb-4 px-1">Sync Device</h3>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Enter Token (e.g. DROP-A1B2)"
-              className="flex-1 bg-background border border-border px-4 py-2 rounded-xl text-sm font-mono focus:border-primary outline-none transition-all uppercase"
-              value={joinToken}
-              onChange={(e) => setJoinToken(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleJoinSession()}
-            />
-            <button
-              onClick={handleJoinSession}
-              className="bg-primary text-primary-foreground px-4 py-2 rounded-xl text-sm font-bold hover:opacity-90 active:scale-95 transition-all"
-            >
-              Join
-            </button>
-          </div>
-          <p className="text-[10px] text-muted-foreground mt-3 px-1 leading-tight">
-            Enter the token from your other device to see it here and share files.
-          </p>
-        </div>
 
-        <motion.div
-          whileHover={{ y: -5 }}
-          className="bg-gradient-to-br from-primary-container to-secondary-container p-6 rounded-[36px] mt-auto shadow-xl shadow-primary/5 border border-white/10"
-        >
-          <h3 className="font-black text-on-primary-container mb-2 font-display text-lg uppercase tracking-tight">Visibility Hidden?</h3>
-          <p className="text-sm text-on-primary-container/70 mb-6 font-medium leading-relaxed">Ensure you're on the same Wi-Fi or use a secure link.</p>
-          <button
-            onClick={() => setShowQR(true)}
-            className="w-full bg-foreground text-background py-4 rounded-2xl font-bold flex items-center justify-center gap-3 hover:opacity-90 transition-all active:scale-95 shadow-lg"
-          >
-            <QrCode className="w-5 h-5" />
-            Join Discovery
-          </button>
-        </motion.div>
       </aside>
 
       {/* QR Code Dialog Overlay */}

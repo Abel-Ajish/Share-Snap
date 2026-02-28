@@ -1,19 +1,14 @@
-import { 
-  type User, 
-  type InsertUser,
-  type Session,
-  type InsertSession,
-  type File,
-  type InsertFile,
-  type Transfer,
-  type InsertTransfer,
-  type Peer,
-  type InsertPeer
+import { db } from "./db";
+import { eq, and, lte } from "drizzle-orm";
+import {
+  users, sessions, files, transfers, peers,
+  type User, type InsertUser,
+  type Session, type InsertSession,
+  type File, type InsertFile,
+  type Transfer, type InsertTransfer,
+  type Peer, type InsertPeer
 } from "@shared/schema";
 import { randomUUID } from "crypto";
-
-// modify the interface with any CRUD methods
-// you might need
 
 export interface IStorage {
   // User methods
@@ -48,6 +43,109 @@ export interface IStorage {
   deletePeer(id: string): Promise<void>;
 }
 
+export class DatabaseStorage implements IStorage {
+  async getUser(id: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const [user] = await db.insert(users).values(insertUser).returning();
+    return user;
+  }
+
+  async getSession(id: string): Promise<Session | undefined> {
+    const [session] = await db.select().from(sessions).where(eq(sessions.id, id));
+    if (session && session.expiresAt > new Date()) {
+      return session;
+    }
+    return undefined;
+  }
+
+  async getSessionByToken(token: string): Promise<Session | undefined> {
+    const [session] = await db.select().from(sessions).where(eq(sessions.token, token));
+    return session;
+  }
+
+  async createSession(insertSession: InsertSession): Promise<Session> {
+    const [session] = await db.insert(sessions).values(insertSession).returning();
+    return session;
+  }
+
+  async deleteSession(id: string): Promise<void> {
+    await db.delete(sessions).where(eq(sessions.id, id));
+  }
+
+  async getFile(id: string): Promise<File | undefined> {
+    const [file] = await db.select().from(files).where(eq(files.id, id));
+    return file;
+  }
+
+  async getFilesBySession(sessionId: string): Promise<File[]> {
+    return await db.select().from(files).where(eq(files.sessionId, sessionId));
+  }
+
+  async createFile(insertFile: InsertFile): Promise<File> {
+    const [file] = await db.insert(files).values(insertFile).returning();
+    return file;
+  }
+
+  async deleteFile(id: string): Promise<void> {
+    await db.delete(files).where(eq(files.id, id));
+  }
+
+  async deleteExpiredFiles(): Promise<void> {
+    await db.delete(files).where(lte(files.expiresAt, new Date()));
+  }
+
+  async getTransfer(id: string): Promise<Transfer | undefined> {
+    const [transfer] = await db.select().from(transfers).where(eq(transfers.id, id));
+    return transfer;
+  }
+
+  async getTransfersByFile(fileId: string): Promise<Transfer[]> {
+    return await db.select().from(transfers).where(eq(transfers.fileId, fileId));
+  }
+
+  async createTransfer(insertTransfer: InsertTransfer): Promise<Transfer> {
+    const [transfer] = await db.insert(transfers).values(insertTransfer).returning();
+    return transfer;
+  }
+
+  async updateTransfer(id: string, update: Partial<Transfer>): Promise<Transfer> {
+    const [updated] = await db.update(transfers).set(update).where(eq(transfers.id, id)).returning();
+    return updated;
+  }
+
+  async getPeer(id: string): Promise<Peer | undefined> {
+    const [peer] = await db.select().from(peers).where(eq(peers.id, id));
+    return peer;
+  }
+
+  async getPeersBySession(sessionId: string): Promise<Peer[]> {
+    return await db.select().from(peers).where(eq(peers.sessionId, sessionId));
+  }
+
+  async createPeer(insertPeer: InsertPeer): Promise<Peer> {
+    const [peer] = await db.insert(peers).values(insertPeer).returning();
+    return peer;
+  }
+
+  async updatePeer(id: string, update: Partial<Peer>): Promise<Peer> {
+    const [updated] = await db.update(peers).set({ ...update, lastSeen: new Date() }).where(eq(peers.id, id)).returning();
+    return updated;
+  }
+
+  async deletePeer(id: string): Promise<void> {
+    await db.delete(peers).where(eq(peers.id, id));
+  }
+}
+
 export class MemStorage implements IStorage {
   private users: Map<string, User>;
   private sessions: Map<string, Session>;
@@ -63,7 +161,6 @@ export class MemStorage implements IStorage {
     this.peers = new Map();
   }
 
-  // User methods
   async getUser(id: string): Promise<User | undefined> {
     return this.users.get(id);
   }
@@ -81,13 +178,12 @@ export class MemStorage implements IStorage {
     return user;
   }
 
-  // Session methods
   async getSession(id: string): Promise<Session | undefined> {
     const session = this.sessions.get(id);
     if (session && session.expiresAt > new Date()) {
       return session;
     }
-    return undefined; // Return undefined if session is expired or not found
+    return undefined;
   }
 
   async getSessionByToken(token: string): Promise<Session | undefined> {
@@ -107,25 +203,20 @@ export class MemStorage implements IStorage {
 
   async deleteSession(id: string): Promise<void> {
     this.sessions.delete(id);
-    // Also delete associated files, transfers, and peers
     const filesToDelete = Array.from(this.files.values())
       .filter(f => f.sessionId === id)
       .map(f => f.id);
-    
     for (const fileId of filesToDelete) {
       await this.deleteFile(fileId);
     }
-
     const peersToDelete = Array.from(this.peers.values())
       .filter(p => p.sessionId === id)
       .map(p => p.id);
-    
     for (const peerId of peersToDelete) {
       await this.deletePeer(peerId);
     }
   }
 
-  // File methods
   async getFile(id: string): Promise<File | undefined> {
     return this.files.get(id);
   }
@@ -147,11 +238,9 @@ export class MemStorage implements IStorage {
 
   async deleteFile(id: string): Promise<void> {
     this.files.delete(id);
-    // Also delete associated transfers
     const transfersToDelete = Array.from(this.transfers.values())
       .filter(t => t.fileId === id)
       .map(t => t.id);
-    
     for (const transferId of transfersToDelete) {
       this.transfers.delete(transferId);
     }
@@ -162,13 +251,11 @@ export class MemStorage implements IStorage {
     const expiredFileIds = Array.from(this.files.entries())
       .filter(([_, file]) => file.expiresAt < now)
       .map(([id, _]) => id);
-    
     for (const fileId of expiredFileIds) {
       await this.deleteFile(fileId);
     }
   }
 
-  // Transfer methods
   async getTransfer(id: string): Promise<Transfer | undefined> {
     return this.transfers.get(id);
   }
@@ -195,13 +282,11 @@ export class MemStorage implements IStorage {
     if (!transfer) {
       throw new Error("Transfer not found");
     }
-    
     const updated = { ...transfer, ...update };
     this.transfers.set(id, updated);
     return updated;
   }
 
-  // Peer methods
   async getPeer(id: string): Promise<Peer | undefined> {
     return this.peers.get(id);
   }
@@ -228,7 +313,6 @@ export class MemStorage implements IStorage {
     if (!peer) {
       throw new Error("Peer not found");
     }
-    
     const updated = { ...peer, ...update, lastSeen: new Date() };
     this.peers.set(id, updated);
     return updated;
@@ -239,4 +323,6 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+export const storage = process.env.DATABASE_URL
+  ? new DatabaseStorage()
+  : new MemStorage();
