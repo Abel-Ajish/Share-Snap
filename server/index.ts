@@ -186,7 +186,7 @@ app.use((req, res, next) => {
 });
 
 // Register routes immediately so they are available when the app is exported
-await registerRoutes(httpServer, app);
+registerRoutes(httpServer, app);
 
 // Error handling middleware
 app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

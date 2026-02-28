@@ -17,10 +17,10 @@ function generateSessionToken() {
   return token;
 }
 
-export async function registerRoutes(
+export function registerRoutes(
   httpServer: Server,
   app: Express
-): Promise<Server> {
+): Server {
   // Health check
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
