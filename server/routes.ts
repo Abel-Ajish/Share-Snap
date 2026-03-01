@@ -326,14 +326,16 @@ export function registerRoutes(
     }
   });
 
-  // Periodic cleanup
-  setInterval(async () => {
-    try {
-      await storage.deleteExpiredFiles();
-    } catch (error) {
-      console.error("Scheduled cleanup failed:", error);
-    }
-  }, 30 * 1000); // Every 30 seconds
+  // Periodic cleanup (only if not on VERCEL)
+  if (process.env.VERCEL !== "1") {
+    setInterval(async () => {
+      try {
+        await storage.deleteExpiredFiles();
+      } catch (error) {
+        console.error("Scheduled cleanup failed:", error);
+      }
+    }, 30 * 1000); // Every 30 seconds
+  }
 
   return httpServer;
 }
