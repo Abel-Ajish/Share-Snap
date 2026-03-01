@@ -332,6 +332,6 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = process.env.DATABASE_URL
+export const storage = (process.env.DATABASE_URL || process.env.POSTGRES_URL)
   ? new DatabaseStorage()
   : new MemStorage();
