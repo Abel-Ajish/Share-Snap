@@ -153,38 +153,81 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
     initSession();
   }, [options.deviceType, options.peerName, options.sessionToken]);
 
-  // Connect to WebSocket
+  // Connect to Signaling (WebSocket or Pusher)
   useEffect(() => {
-    if (!sessionId || !currentPeerId) return; // Wait for both session and peer to be registered
+    if (!sessionId || !currentPeerId) return;
 
-    const connect = () => {
+    let pusher: any = null;
+    let channel: any = null;
+    let ws: WebSocket | null = null;
+    let cleaningUp = false;
+
+    const setupSignaling = async () => {
+      // 1. Try Pusher if key is available (Recommended for Vercel)
+      const pusherKey = import.meta.env.VITE_PUSHER_KEY;
+      const pusherCluster = import.meta.env.VITE_PUSHER_CLUSTER || "mt1";
+
+      if (pusherKey) {
+        try {
+          const { default: Pusher } = await import("pusher-js");
+          pusher = new Pusher(pusherKey, { cluster: pusherCluster });
+          channel = pusher.subscribe(`session-${sessionId}`);
+
+          const handleIncoming = (message: any) => {
+            if (cleaningUp) return;
+            switch (message.type) {
+              case "peer-joined":
+                peersRef.current.add(message.peerId);
+                fetchPeers();
+                break;
+              case "peer-left":
+                peersRef.current.delete(message.peerId);
+                fetchPeers();
+                break;
+              case "transfer-start":
+                if (message.payload.toPeerId === peerIdRef.current) {
+                  console.log("Incoming transfer started (Pusher):", message.payload);
+                }
+                break;
+              case "transfer-complete":
+                if (message.payload.success && message.payload.receiverPeerId === peerIdRef.current) {
+                  fetchReceivedFiles();
+                }
+                break;
+            }
+          };
+
+          // Pusher event names are the same as message.type
+          channel.bind("peer-joined", handleIncoming);
+          channel.bind("peer-left", handleIncoming);
+          channel.bind("transfer-start", handleIncoming);
+          channel.bind("transfer-complete", handleIncoming);
+          return;
+        } catch (err) {
+          console.error("Pusher setup failed:", err);
+        }
+      }
+
+      // 2. Fallback to native WebSockets (Local Dev only)
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${protocol}//${window.location.host}/ws`;
 
-      const ws = new WebSocket(wsUrl);
+      ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
-        ws.send(JSON.stringify({
+        if (cleaningUp) return;
+        ws?.send(JSON.stringify({
           type: "join",
           peerId: peerIdRef.current,
           sessionId: sessionId,
         }));
-
-        // Send periodic ping to keep connection alive
-        const pingInterval = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: "ping" }));
-          }
-        }, 30000); // Every 30 seconds
-
-        return () => clearInterval(pingInterval);
       };
 
       ws.onmessage = (event) => {
+        if (cleaningUp) return;
         try {
           const message = JSON.parse(event.data);
-
           switch (message.type) {
             case "peer-joined":
               peersRef.current.add(message.peerId);
@@ -196,42 +239,30 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
               break;
             case "transfer-start":
               if (message.payload.toPeerId === peerIdRef.current) {
-                // We're the recipient
-                console.log("Incoming transfer started:", message.payload);
+                console.log("Incoming transfer started (WS):", message.payload);
               }
               break;
             case "transfer-complete":
               if (message.payload.success && message.payload.receiverPeerId === peerIdRef.current) {
-                // We're the recipient and it's done
                 fetchReceivedFiles();
               }
               break;
-            case "pong":
-              // Keep-alive response
-              break;
           }
-        } catch (err) {
-          console.error("WebSocket message error:", err);
-        }
-      };
-
-      ws.onerror = (error) => {
-        console.error("WebSocket error:", error);
-        setError("Connection error");
+        } catch (err) { }
       };
 
       ws.onclose = () => {
-        // Attempt to reconnect after delay
-        setTimeout(connect, 3000);
+        if (!cleaningUp) setTimeout(setupSignaling, 3000);
       };
     };
 
-    connect();
+    setupSignaling();
 
     return () => {
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.close();
-      }
+      cleaningUp = true;
+      if (channel) channel.unbind_all();
+      if (pusher) pusher.disconnect();
+      if (ws) ws.close();
     };
   }, [sessionId, currentPeerId]);
 
@@ -443,44 +474,36 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
           )
         );
 
-        // Notify via WebSocket
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.send(
-            JSON.stringify({
-              type: "transfer-start",
-              peerId: peerIdRef.current,
-              sessionId,
-              payload: {
-                transferId: transfer.transfer.id,
-                toPeerId: peerId,
-                fileName: files.find((f) => f.id === fileId)?.name,
-              },
-            })
-          );
-        }
+        // Notify via API (Pusher/WebSocket fallback on server)
+        await apiRequest("POST", "/api/broadcast", {
+          sessionId,
+          type: "transfer-start",
+          peerId: peerIdRef.current,
+          payload: {
+            transferId: transfer.transfer.id,
+            toPeerId: peerId,
+            fileName: files.find((f) => f.id === fileId)?.name,
+          },
+        });
 
         // Simulate transfer completion
-        setTimeout(() => {
+        setTimeout(async () => {
           setFiles((prev) =>
             prev.map((f) =>
               f.id === fileId ? { ...f, status: "sent" } : f
             )
           );
 
-          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send(
-              JSON.stringify({
-                type: "transfer-complete",
-                peerId: peerIdRef.current,
-                sessionId,
-                payload: {
-                  transferId: transfer.transfer.id,
-                  success: true,
-                  receiverPeerId: peerId,
-                },
-              })
-            );
-          }
+          await apiRequest("POST", "/api/broadcast", {
+            sessionId,
+            type: "transfer-complete",
+            peerId: peerIdRef.current,
+            payload: {
+              transferId: transfer.transfer.id,
+              success: true,
+              receiverPeerId: peerId,
+            },
+          });
         }, 1500);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Send failed");

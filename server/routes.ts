@@ -177,6 +177,16 @@ export function registerRoutes(
         isOnline: true,
       });
 
+      // Auto-broadcast peer joined for Pusher/Vercel compatibility
+      // (This replaces the client's 'join' WebSocket message)
+      import("./index.js").then(({ broadcastToSession }) => {
+        broadcastToSession(sessionId, {
+          type: "peer-joined",
+          peerId: peer.id,
+          name: peer.name,
+        });
+      });
+
       res.json({ peer });
     } catch (error) {
       console.error("Peer registration error:", error);
@@ -336,6 +346,25 @@ export function registerRoutes(
       }
     }, 30 * 1000); // Every 30 seconds
   }
+
+  // Broadcast message to session
+  app.post("/api/broadcast", async (req, res) => {
+    const { sessionId, type, payload, peerId } = req.body;
+    if (!sessionId || !type) {
+      return res.status(400).json({ error: "Missing sessionId or type" });
+    }
+
+    // Call the server's broadcast function (which uses Pusher or WebSocket)
+    import("./index.js").then(({ broadcastToSession }) => {
+      broadcastToSession(sessionId, {
+        type,
+        peerId,
+        payload
+      });
+    });
+
+    res.json({ success: true });
+  });
 
   return httpServer;
 }

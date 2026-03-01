@@ -128,13 +128,24 @@ const peerSessions = new Map<any, { peerId: string; sessionId: string }>();
 
 // Broadcast message to all peers in a session
 export function broadcastToSession(sessionId: string, message: any) {
-  if (!wss) return;
-  const peers = connectedPeers.get(sessionId);
-  if (peers) {
-    peers.forEach((wsConnection) => {
-      if (wsConnection.readyState === 1) { // 1 = OPEN
-        wsConnection.send(JSON.stringify(message));
-      }
+  // 1. Try local WebSockets (for non-Vercel environments)
+  if (wss) {
+    const peers = connectedPeers.get(sessionId);
+    if (peers) {
+      peers.forEach((wsConnection) => {
+        if (wsConnection.readyState === 1) { // 1 = OPEN
+          wsConnection.send(JSON.stringify(message));
+        }
+      });
+    }
+  }
+
+  // 2. Also broadcast via Pusher (for Vercel compatibility)
+  // This will only do something if the Pusher environment variables are set.
+  if (process.env.PUSHER_APP_ID) {
+    import("./pusher.js").then(({ default: pusher }) => {
+      pusher.trigger(`session-${sessionId}`, message.type, message)
+        .catch(err => console.error("Pusher broadcast error:", err));
     });
   }
 }
