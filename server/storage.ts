@@ -7,7 +7,7 @@ import {
   type File, type InsertFile,
   type Transfer, type InsertTransfer,
   type Peer, type InsertPeer
-} from "@shared/schema";
+} from "../shared/schema";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
