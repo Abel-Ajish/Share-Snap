@@ -3,7 +3,10 @@ import pg from "pg";
 import * as schema from "../shared/schema";
 
 export const pool = process.env.DATABASE_URL
-    ? new pg.Pool({ connectionString: process.env.DATABASE_URL })
+    ? new pg.Pool({
+        connectionString: process.env.DATABASE_URL,
+        ssl: { rejectUnauthorized: false }
+    })
     : null;
 
 export const db = pool

@@ -2,25 +2,27 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
 
 const app = express();
-let httpServer: any = null;
-let wss: WebSocketServer | null = null;
+const httpServer = createServer(app);
+let wss: any = null;
 
 if (process.env.VERCEL !== "1") {
-  httpServer = createServer(app);
-  // WebSocket server setup - only for our custom protocol
-  wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+  (async () => {
+    try {
+      const { WebSocketServer } = await import("ws");
+      // WebSocket server setup - only for our custom protocol
+      wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+      setupWebSocketEvents(wss);
+    } catch (e) {
+      console.error("WS INIT ERROR", e);
+    }
+  })();
 }
 
-// Track connected peers
-const connectedPeers = new Map<string, Set<WebSocket>>();
-const peerSessions = new Map<WebSocket, { peerId: string; sessionId: string }>();
-
-if (wss) {
-  wss.on("connection", (ws: WebSocket) => {
+function setupWebSocketEvents(wss: any) {
+  wss.on("connection", (ws: any) => {
     let peerId: string | null = null;
     let sessionId: string | null = null;
 
@@ -118,11 +120,16 @@ if (wss) {
       peerSessions.delete(ws);
     });
 
-    ws.on("error", (error) => {
+    ws.on("error", (error: any) => {
       console.error("WebSocket error:", error);
     });
   });
 }
+
+// Track connected peers
+const connectedPeers = new Map<string, Set<WebSocket>>();
+const peerSessions = new Map<WebSocket, { peerId: string; sessionId: string }>();
+
 
 // Broadcast message to all peers in a session
 function broadcastToSession(sessionId: string, message: any) {
