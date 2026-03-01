@@ -127,8 +127,8 @@ function setupWebSocketEvents(wss: any) {
 }
 
 // Track connected peers
-const connectedPeers = new Map<string, Set<WebSocket>>();
-const peerSessions = new Map<WebSocket, { peerId: string; sessionId: string }>();
+const connectedPeers = new Map<string, Set<any>>();
+const peerSessions = new Map<any, { peerId: string; sessionId: string }>();
 
 
 // Broadcast message to all peers in a session
