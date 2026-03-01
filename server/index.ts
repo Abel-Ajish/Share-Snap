@@ -1,6 +1,6 @@
-import { app, httpServer, log } from "./app";
-import { storage } from "./storage";
-import { serveStatic } from "./static";
+import { app, httpServer, log } from "./app.js";
+import { storage } from "./storage.js";
+import { serveStatic } from "./static.js";
 
 let wss: any = null;
 

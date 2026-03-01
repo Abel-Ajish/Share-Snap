@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { storage } from "./storage";
+import { storage } from "./storage.js";
 import { randomUUID } from "crypto";
 
 // Generate a readable device token (e.g., "DROP-A8F9-Z42")
