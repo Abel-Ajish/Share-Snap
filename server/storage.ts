@@ -32,6 +32,7 @@ export interface IStorage {
   // Transfer methods
   getTransfer(id: string): Promise<Transfer | undefined>;
   getTransfersByFile(fileId: string): Promise<Transfer[]>;
+  getTransfersByReceiver(receiverPeerId: string): Promise<Transfer[]>;
   createTransfer(transfer: InsertTransfer): Promise<Transfer>;
   updateTransfer(id: string, update: Partial<Transfer>): Promise<Transfer>;
 
@@ -110,6 +111,10 @@ export class DatabaseStorage implements IStorage {
 
   async getTransfersByFile(fileId: string): Promise<Transfer[]> {
     return await db.select().from(transfers).where(eq(transfers.fileId, fileId));
+  }
+
+  async getTransfersByReceiver(receiverPeerId: string): Promise<Transfer[]> {
+    return await db.select().from(transfers).where(eq(transfers.receiverPeerId, receiverPeerId));
   }
 
   async createTransfer(insertTransfer: InsertTransfer): Promise<Transfer> {
@@ -262,6 +267,10 @@ export class MemStorage implements IStorage {
 
   async getTransfersByFile(fileId: string): Promise<Transfer[]> {
     return Array.from(this.transfers.values()).filter(t => t.fileId === fileId);
+  }
+
+  async getTransfersByReceiver(receiverPeerId: string): Promise<Transfer[]> {
+    return Array.from(this.transfers.values()).filter(t => t.receiverPeerId === receiverPeerId);
   }
 
   async createTransfer(insertTransfer: InsertTransfer): Promise<Transfer> {

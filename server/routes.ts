@@ -272,11 +272,7 @@ export function registerRoutes(
   app.get("/api/peers/:peerId/received-files", async (req, res) => {
     try {
       const { peerId } = req.params;
-      const peers = await storage.getPeersBySession(""); // This is just to get all, we'll filter
-      // Actually, we need a way to get transfers by receiver
-      // I'll check storage implementation...
-      const transfers = Array.from((storage as any).transfers.values() as any[])
-        .filter((t: any) => t.receiverPeerId === peerId);
+      const transfers = await storage.getTransfersByReceiver(peerId);
 
       const files = [];
       for (const t of transfers) {

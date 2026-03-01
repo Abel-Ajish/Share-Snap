@@ -107,7 +107,13 @@ export function useShareSnap(options: UseShareSnapOptions = {}) {
           const res = await apiRequest("POST", "/api/sessions");
           const data = await res.json();
           session = data.session;
-          localStorage.setItem(storageKey, JSON.stringify(session));
+          if (session) {
+            localStorage.setItem(storageKey, JSON.stringify(session));
+          }
+        }
+
+        if (!session) {
+          throw new Error("Failed to initialize session");
         }
 
         setSessionId(session.id);
