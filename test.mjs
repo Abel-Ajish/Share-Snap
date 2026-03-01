@@ -1,0 +1,1 @@
+import('./api/index.ts').then(mod => console.log('Loaded:', typeof mod.default)).catch(console.error);

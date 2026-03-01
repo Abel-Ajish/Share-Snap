@@ -1,11 +1,7 @@
-import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./routes";
-import { serveStatic } from "./static";
-import { createServer } from "http";
+import { app, httpServer, log } from "./app";
 import { storage } from "./storage";
+import { serveStatic } from "./static";
 
-const app = express();
-const httpServer = createServer(app);
 let wss: any = null;
 
 if (process.env.VERCEL !== "1") {
@@ -130,9 +126,8 @@ function setupWebSocketEvents(wss: any) {
 const connectedPeers = new Map<string, Set<any>>();
 const peerSessions = new Map<any, { peerId: string; sessionId: string }>();
 
-
 // Broadcast message to all peers in a session
-function broadcastToSession(sessionId: string, message: any) {
+export function broadcastToSession(sessionId: string, message: any) {
   if (!wss) return;
   const peers = connectedPeers.get(sessionId);
   if (peers) {
@@ -143,80 +138,6 @@ function broadcastToSession(sessionId: string, message: any) {
     });
   }
 }
-
-declare module "http" {
-  interface IncomingMessage {
-    rawBody: unknown;
-  }
-}
-
-app.use(
-  express.json({
-    // allow payloads up to 10MB so users can drop reasonably large files
-    limit: "10mb",
-    verify: (req, _res, buf) => {
-      req.rawBody = buf;
-    },
-  }),
-);
-
-app.use(express.urlencoded({ extended: false }));
-
-export function log(message: string, source = "express") {
-  const formattedTime = new Date().toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  });
-
-  console.log(`${formattedTime} [${source}] ${message}`);
-}
-
-app.use((req, res, next) => {
-  const start = Date.now();
-  const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
-
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
-
-  res.on("finish", () => {
-    const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      log(logLine);
-    }
-  });
-
-  next();
-});
-
-// Register routes immediately so they are available when the app is exported
-registerRoutes(httpServer, app);
-
-// Error handling middleware
-app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
-  const status = err.status || err.statusCode || 500;
-  const message = err.message || "Internal Server Error";
-
-  console.error("Internal Server Error:", err);
-
-  if (res.headersSent) {
-    return next(err);
-  }
-
-  return res.status(status).json({ message });
-});
-
-export { app, httpServer };
 
 if (process.env.VERCEL !== "1") {
   (async () => {
@@ -239,3 +160,5 @@ if (process.env.VERCEL !== "1") {
     );
   })();
 }
+
+export { app, httpServer };
